@@ -1,0 +1,401 @@
+name: misvales-dev
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+x-labels: &default-labels
+  com.misvales.project: misvales
+  com.misvales.environment: development
+  com.misvales.managed-by: docker-compose
+
+services:
+  postgres:
+    image: postgres:17.10-bookworm
+    init: true
+    restart: unless-stopped
+    env_file:
+      - ./docker/env/postgres.env
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init/01-create-databases.sh:/docker-entrypoint-initdb.d/01-create-databases.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\" -h 127.0.0.1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/run/postgresql
+    logging: *default-logging
+    labels:
+      <<: *default-labels
+      com.misvales.service: database
+    networks:
+      - misvales-dev-network
+
+  redis:
+    image: redis:8.2.7-bookworm
+    init: true
+    restart: unless-stopped
+    env_file:
+      - ./docker/env/redis.env
+    command:
+      - /bin/sh
+      - -ec
+      - exec redis-server /usr/local/etc/redis/redis.conf --requirepass "$$REDIS_PASSWORD"
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+      - ./docker/redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli --no-auth-warning -a \"$$REDIS_PASSWORD\" ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+    logging: *default-logging
+    labels:
+      <<: *default-labels
+      com.misvales.service: cache-queue
+    networks:
+      - misvales-dev-network
+
+  minio:
+    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z.hotfix.7aa24e772
+    init: true
+    restart: unless-stopped
+    env_file:
+      - ./docker/env/minio.env
+    command: ["server", "/data", "--console-address", ":9001"]
+    ports:
+      - "127.0.0.1:${MINIO_API_PORT:-9000}:9000"
+      - "127.0.0.1:${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+    logging: *default-logging
+    labels:
+      <<: *default-labels
+      com.misvales.service: object-storage
+    networks:
+      - misvales-dev-network
+
+  minio-init:
+    image: quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z
+    init: true
+    restart: "no"
+    env_file:
+      - ./docker/env/minio.env
+    entrypoint: ["/bin/sh", "/opt/misvales/create-buckets.sh"]
+    volumes:
+      - ./docker/minio/init/create-buckets.sh:/opt/misvales/create-buckets.sh:ro
+    depends_on:
+      minio:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /.mc
+    logging: *default-logging
+    labels:
+      <<: *default-labels
+      com.misvales.service: object-storage-initializer
+    networks:
+      - misvales-dev-network
+
+  mailpit:
+    image: axllent/mailpit:v1.30.3
+    init: true
+    restart: unless-stopped
+    env_file:
+      - ./docker/env/mailpit.env
+    ports:
+      - "127.0.0.1:${MAILPIT_SMTP_PORT:-1025}:1025"
+      - "127.0.0.1:${MAILPIT_WEB_PORT:-8025}:8025"
+    volumes:
+      - mailpit_data:/data
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+    logging: *default-logging
+    labels:
+      <<: *default-labels
+      com.misvales.service: development-mail
+    networks:
+      - misvales-dev-network
+
+  pgadmin:
+    image: dpage/pgadmin4:9.4
+    profiles: ["tools"]
+    init: true
+    restart: unless-stopped
+    env_file:
+      - ./docker/env/pgadmin.env
+    ports:
+      - "127.0.0.1:${PGADMIN_PORT:-5050}:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+      - ./docker/pgadmin/servers.json:/pgadmin4/servers.json:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1/misc/ping', timeout=3)\""]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
+    labels:
+      <<: *default-labels
+      com.misvales.service: postgres-admin
+    networks:
+      - misvales-dev-network
+
+  redisinsight:
+    image: redis/redisinsight:2.70.1
+    profiles: ["tools"]
+    init: true
+    restart: unless-stopped
+    env_file:
+      - ./docker/env/redisinsight.env
+    ports:
+      - "127.0.0.1:${REDISINSIGHT_PORT:-5540}:5540"
+    volumes:
+      - redisinsight_data:/data
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:5540/api/health/ >/dev/null"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
+    labels:
+      <<: *default-labels
+      com.misvales.service: redis-admin
+    networks:
+      - misvales-dev-network
+
+  prometheus:
+    image: prom/prometheus:v3.4.1
+    profiles: ["observability"]
+    init: true
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+      - --web.enable-lifecycle
+      - --web.enable-remote-write-receiver
+    volumes:
+      - prometheus_data:/prometheus
+      - ./docker/observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:9090/-/healthy >/dev/null"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+    logging: *default-logging
+    labels:
+      <<: *default-labels
+      com.misvales.service: metrics
+    networks:
+      - misvales-dev-network
+
+  loki:
+    image: grafana/loki:3.5.1
+    profiles: ["observability"]
+    init: true
+    restart: unless-stopped
+    command: ["-config.file=/etc/loki/loki.yml"]
+    volumes:
+      - loki_data:/loki
+      - ./docker/observability/loki/loki.yml:/etc/loki/loki.yml:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:3100/ready >/dev/null"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+    logging: *default-logging
+    labels:
+      <<: *default-labels
+      com.misvales.service: logs
+    networks:
+      - misvales-dev-network
+
+  tempo:
+    image: grafana/tempo:2.8.1
+    profiles: ["observability"]
+    init: true
+    restart: unless-stopped
+    command: ["-config.file=/etc/tempo/tempo.yml"]
+    volumes:
+      - tempo_data:/var/tempo
+      - ./docker/observability/tempo/tempo.yml:/etc/tempo/tempo.yml:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:3200/ready >/dev/null"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+    logging: *default-logging
+    labels:
+      <<: *default-labels
+      com.misvales.service: traces
+    networks:
+      - misvales-dev-network
+
+  alloy:
+    image: grafana/alloy:v1.9.1
+    profiles: ["observability"]
+    init: true
+    restart: unless-stopped
+    env_file:
+      - ./docker/env/observability.env
+    command: ["run", "--server.http.listen-addr=0.0.0.0:12345", "/etc/alloy/config.alloy"]
+    ports:
+      - "127.0.0.1:${OTLP_GRPC_PORT:-4317}:4317"
+      - "127.0.0.1:${OTLP_HTTP_PORT:-4318}:4318"
+    volumes:
+      - ./docker/observability/alloy/config.alloy:/etc/alloy/config.alloy:ro
+    depends_on:
+      prometheus:
+        condition: service_healthy
+      loki:
+        condition: service_healthy
+      tempo:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:12345/-/ready >/dev/null"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/lib/alloy
+    logging: *default-logging
+    labels:
+      <<: *default-labels
+      com.misvales.service: telemetry-collector
+    networks:
+      - misvales-dev-network
+
+  grafana:
+    image: grafana/grafana:12.0.2
+    profiles: ["observability"]
+    init: true
+    restart: unless-stopped
+    env_file:
+      - ./docker/env/observability.env
+    ports:
+      - "127.0.0.1:${GRAFANA_PORT:-3000}:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./docker/observability/grafana/provisioning:/etc/grafana/provisioning:ro
+    depends_on:
+      prometheus:
+        condition: service_healthy
+      loki:
+        condition: service_healthy
+      tempo:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:3000/api/health >/dev/null"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/log/grafana
+    logging: *default-logging
+    labels:
+      <<: *default-labels
+      com.misvales.service: observability-ui
+    networks:
+      - misvales-dev-network
+
+networks:
+  misvales-dev-network:
+    name: misvales-dev-network
+    driver: bridge
+    labels:
+      <<: *default-labels
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:
+  mailpit_data:
+  pgadmin_data:
+  redisinsight_data:
+  prometheus_data:
+  loki_data:
+  tempo_data:
+  grafana_data:

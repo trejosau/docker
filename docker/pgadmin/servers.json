@@ -1,0 +1,14 @@
+{
+  "Servers": {
+    "1": {
+      "Name": "MisVales PostgreSQL (development)",
+      "Group": "MisVales local",
+      "Host": "postgres",
+      "Port": 5432,
+      "MaintenanceDB": "misvales_dev",
+      "Username": "misvales_dev_user",
+      "SSLMode": "prefer",
+      "SavePassword": false
+    }
+  }
+}

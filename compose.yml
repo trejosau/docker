@@ -16,8 +16,18 @@ services:
     image: postgres:17.10-bookworm
     init: true
     restart: unless-stopped
-    env_file:
-      - ./docker/env/postgres.env
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?Define POSTGRES_USER in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Define POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-postgres}
+      POSTGRES_INITDB_ARGS: ${POSTGRES_INITDB_ARGS:---encoding=UTF8 --locale=C.UTF-8}
+      MISVALES_DEV_DB: ${MISVALES_DEV_DB:-misvales_dev}
+      MISVALES_DEV_USER: ${MISVALES_DEV_USER:-misvales_dev_user}
+      MISVALES_DEV_PASSWORD: ${MISVALES_DEV_PASSWORD:?Define MISVALES_DEV_PASSWORD in .env}
+      MISVALES_TEST_DB: ${MISVALES_TEST_DB:-misvales_test}
+      MISVALES_TEST_USER: ${MISVALES_TEST_USER:-misvales_test_user}
+      MISVALES_TEST_PASSWORD: ${MISVALES_TEST_PASSWORD:?Define MISVALES_TEST_PASSWORD in .env}
+      TZ: ${TZ:-America/Monterrey}
     ports:
       - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
@@ -46,8 +56,9 @@ services:
     image: redis:8.2.7-bookworm
     init: true
     restart: unless-stopped
-    env_file:
-      - ./docker/env/redis.env
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Define REDIS_PASSWORD in .env}
+      TZ: ${TZ:-America/Monterrey}
     command:
       - /bin/sh
       - -ec
@@ -79,8 +90,10 @@ services:
     image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z.hotfix.7aa24e772
     init: true
     restart: unless-stopped
-    env_file:
-      - ./docker/env/minio.env
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?Define MINIO_ROOT_USER in .env}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Define MINIO_ROOT_PASSWORD in .env}
+      TZ: ${TZ:-America/Monterrey}
     command: ["server", "/data", "--console-address", ":9001"]
     ports:
       - "127.0.0.1:${MINIO_API_PORT:-9000}:9000"
@@ -109,8 +122,15 @@ services:
     image: quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z
     init: true
     restart: "no"
-    env_file:
-      - ./docker/env/minio.env
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?Define MINIO_ROOT_USER in .env}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Define MINIO_ROOT_PASSWORD in .env}
+      MINIO_APP_ACCESS_KEY: ${MINIO_APP_ACCESS_KEY:?Define MINIO_APP_ACCESS_KEY in .env}
+      MINIO_APP_SECRET_KEY: ${MINIO_APP_SECRET_KEY:?Define MINIO_APP_SECRET_KEY in .env}
+      MINIO_PRIVATE_BUCKET: ${MINIO_PRIVATE_BUCKET:-misvales-private}
+      MINIO_BACKUPS_BUCKET: ${MINIO_BACKUPS_BUCKET:-misvales-backups}
+      MINIO_REGION: ${MINIO_REGION:-us-east-1}
+      TZ: ${TZ:-America/Monterrey}
     entrypoint: ["/bin/sh", "/opt/misvales/create-buckets.sh"]
     volumes:
       - ./docker/minio/init/create-buckets.sh:/opt/misvales/create-buckets.sh:ro
@@ -134,8 +154,11 @@ services:
     image: axllent/mailpit:v1.30.3
     init: true
     restart: unless-stopped
-    env_file:
-      - ./docker/env/mailpit.env
+    environment:
+      MP_DATABASE: ${MP_DATABASE:-/data/mailpit.db}
+      MP_SMTP_BIND_ADDR: ${MP_SMTP_BIND_ADDR:-0.0.0.0:1025}
+      MP_UI_BIND_ADDR: ${MP_UI_BIND_ADDR:-0.0.0.0:8025}
+      TZ: ${TZ:-America/Monterrey}
     ports:
       - "127.0.0.1:${MAILPIT_SMTP_PORT:-1025}:1025"
       - "127.0.0.1:${MAILPIT_WEB_PORT:-8025}:8025"
@@ -164,8 +187,12 @@ services:
     profiles: ["tools"]
     init: true
     restart: unless-stopped
-    env_file:
-      - ./docker/env/pgadmin.env
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL:?Define PGADMIN_DEFAULT_EMAIL in .env}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD:?Define PGADMIN_DEFAULT_PASSWORD in .env}
+      PGADMIN_CONFIG_SERVER_MODE: ${PGADMIN_CONFIG_SERVER_MODE:-False}
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: ${PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED:-False}
+      TZ: ${TZ:-America/Monterrey}
     ports:
       - "127.0.0.1:${PGADMIN_PORT:-5050}:80"
     volumes:
@@ -194,8 +221,9 @@ services:
     profiles: ["tools"]
     init: true
     restart: unless-stopped
-    env_file:
-      - ./docker/env/redisinsight.env
+    environment:
+      RI_ACCEPT_TERMS_AND_CONDITIONS: ${RI_ACCEPT_TERMS_AND_CONDITIONS:-true}
+      TZ: ${TZ:-America/Monterrey}
     ports:
       - "127.0.0.1:${REDISINSIGHT_PORT:-5540}:5540"
     volumes:
@@ -223,6 +251,8 @@ services:
     profiles: ["observability"]
     init: true
     restart: unless-stopped
+    environment:
+      TZ: ${TZ:-America/Monterrey}
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus
@@ -255,6 +285,8 @@ services:
     profiles: ["observability"]
     init: true
     restart: unless-stopped
+    environment:
+      TZ: ${TZ:-America/Monterrey}
     command: ["-config.file=/etc/loki/loki.yml"]
     volumes:
       - loki_data:/loki
@@ -282,6 +314,8 @@ services:
     profiles: ["observability"]
     init: true
     restart: unless-stopped
+    environment:
+      TZ: ${TZ:-America/Monterrey}
     command: ["-config.file=/etc/tempo/tempo.yml"]
     volumes:
       - tempo_data:/var/tempo
@@ -309,8 +343,8 @@ services:
     profiles: ["observability"]
     init: true
     restart: unless-stopped
-    env_file:
-      - ./docker/env/observability.env
+    environment:
+      TZ: ${TZ:-America/Monterrey}
     command: ["run", "--server.http.listen-addr=0.0.0.0:12345", "/etc/alloy/config.alloy"]
     ports:
       - "127.0.0.1:${OTLP_GRPC_PORT:-4317}:4317"
@@ -348,8 +382,14 @@ services:
     profiles: ["observability"]
     init: true
     restart: unless-stopped
-    env_file:
-      - ./docker/env/observability.env
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GF_SECURITY_ADMIN_USER:?Define GF_SECURITY_ADMIN_USER in .env}
+      GF_SECURITY_ADMIN_PASSWORD: ${GF_SECURITY_ADMIN_PASSWORD:?Define GF_SECURITY_ADMIN_PASSWORD in .env}
+      GF_USERS_ALLOW_SIGN_UP: ${GF_USERS_ALLOW_SIGN_UP:-false}
+      GF_AUTH_ANONYMOUS_ENABLED: ${GF_AUTH_ANONYMOUS_ENABLED:-false}
+      GF_ANALYTICS_REPORTING_ENABLED: ${GF_ANALYTICS_REPORTING_ENABLED:-false}
+      GF_ANALYTICS_CHECK_FOR_UPDATES: ${GF_ANALYTICS_CHECK_FOR_UPDATES:-false}
+      TZ: ${TZ:-America/Monterrey}
     ports:
       - "127.0.0.1:${GRAFANA_PORT:-3000}:3000"
     volumes:

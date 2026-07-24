@@ -1,14 +1,6 @@
-# Laravel/local application environment (if this directory becomes the app root)
+# Local Docker configuration with generated development secrets
 .env
-.env.*
-!.env.example
 
-# Docker development credentials and local data
-docker/env/*.env
-!docker/env/*.env.example
-
-docker/secrets/*
-!docker/secrets/.gitkeep
-
+# Docker-generated local data
 .local/
 docker/backups/
